@@ -1,0 +1,623 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Dotted Circle on Click</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <script src="https://unpkg.com/maplibre-gl@2.4.0/dist/maplibre-gl.js"></script>
+    <link
+      href="https://unpkg.com/maplibre-gl@2.4.0/dist/maplibre-gl.css"
+      rel="stylesheet"
+    />
+    <script src="https://cdn.jsdelivr.net/npm/@turf/turf@7/turf.min.js"></script>
+    <script
+      src="https://unpkg.com/threebox-plugin@2.2.1/dist/threebox.min.js"
+      type="text/javascript"
+    ></script>
+    <link
+      href="https://unpkg.com/threebox-plugin@2.2.1/dist/threebox.css"
+      rel="stylesheet"
+    />
+    <link href="css/custom.css" rel="stylesheet" type="text/css" />
+
+    <style>
+      body,
+      html {
+        margin: 0;
+        padding: 0;
+        height: 100%;
+      }
+      #map {
+        width: 100%;
+        height: 100%;
+        position: relative;
+      }
+      .dotpoint {
+        width: 15px;
+        height: 15px;
+        background-color: red;
+        border-radius: 50%;
+        border: 2px solid white;
+        cursor: pointer;
+      }
+      .marker-label {
+        position: absolute;
+        top: 18px;
+        left: -44px;
+        color: rgb(255, 255, 255);
+        line-height: 15px;
+        width: 100px;
+        text-align: center;
+        font-weight: 600;
+        padding: 5px;
+        border-radius: 5px;
+        background-color: rgba(34, 34, 34, 0.8);
+      }
+      .connectivity-marker {
+        width: 75px;
+        height: 75px;
+        background-size: cover;
+        cursor: pointer;
+        transform: translate(-50%, -50%) translate(475px, 174px) rotateX(0deg)
+          rotateZ(0deg);
+        opacity: 1;
+      }
+
+      .maplibregl-marker {
+        z-index: 10;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="map"></div>
+
+    <div class="menu" id="menu">
+      <a
+        href="javascript:void(0)"
+        class="btn"
+        id="proj"
+        onclick="handleMarkerClick()"
+        >HOMES</a
+      >
+      <a href="javascript:void(0)" class="btn" id="nearby" onclick="nearBy()"
+        >NEARBY</a
+      >
+      <a href="javascript:void(0)" class="btn" id="cnnt" onclick="connect()"
+        >CONNECTIVITY</a
+      >
+    </div>
+    <div
+      class="bottom-links-rut"
+      id="bottom-links-rut"
+      style="display: block; bottom: 20px; left: 70px"
+    >
+      <a href="javascript:void(0)" id="nameLink" style="display: none"
+        ><img src="images/small-icon1.png" /><span></span
+      ></a>
+      <a href="javascript:void(0)" id="distanceLink" style="display: none"
+        ><img src="images/small-icon2.png" /><span></span
+      ></a>
+      <a href="javascript:void(0)" id="timeLink" style="display: none"
+        ><img src="images/small-icon3.png" /><span></span
+      ></a>
+      <a
+        href="javascript:void(0)"
+        class="dark"
+        id="routeCall"
+        style="display: none"
+        ><img src="images/small-icon4.png" /><span>Show Route</span></a
+      >
+    </div>
+
+    <script>
+      const myLat = 28.614,
+        myLng = 77.209;
+      let tb,
+        removableMarker = [],
+        connectMarker = [];
+      let bottomLinks = document.querySelector("#bottom-links-rut");
+      let distanceLink = document.querySelector("#distanceLink");
+
+      function calculateDistanceAndInsert(toCorrds, name) {
+        if (!toCorrds) {
+          console.log(
+            "no destination coords given, need 2 para to calculate distance"
+          );
+          return;
+        }
+        const from = turf.point([77.209, 28.614]);
+        const to = turf.point(toCorrds);
+        const options = { units: "kilometers" };
+
+        let distance = turf.distance(from, to);
+        distanceLink.children[1].textContent = `${distance.toFixed(1)} Km`;
+        bottomLinks.children[0].children[1].textContent = `${name}`;
+
+        let speed = 60,
+          time = (distance / speed).toFixed(2).toString().split(".");
+        let hr = time[1] >= 60 ? +time[0] + 1 : time[0],
+          min = time[1] >= 60 ? +time[1] % 60 : +time[1]; // km/hr
+
+        bottomLinks.children[2].children[1].textContent =
+          time[0] != "0" ? `${hr} Hr ${min} Min` : `${min} Min`;
+
+        return;
+      }
+
+      function connect() {
+        console.log("in connect function");
+        let bottomLinksLength = bottomLinks.childElementCount;
+        for (let i = 0; i < bottomLinksLength; i++) {
+          bottomLinks.children[i].style.display = "none";
+        }
+        map.flyTo({
+          center: [myLng, myLat],
+          zoom: 6.5,
+          speed: 0.8,
+          pitch: 0,
+          bearing: 0,
+        });
+
+        if (removableMarker.length) removeMarker();
+        const routeIds = map
+          .getStyle()
+          .layers.filter((l) => l.id.startsWith("connect-route-"))
+          .map((l) => l.id);
+        routeIds.forEach((id) => {
+          if (map.getLayer(id)) map.removeLayer(id);
+          if (map.getSource(id)) map.removeSource(id);
+        });
+        let connect = [
+          { coords: [76.7841, 30.3782], name: "Ambala" }, // Ambala
+          { coords: [74.8723, 31.634], name: "Amritsar" }, // Amritsar
+          { coords: [74.9958, 30.21], name: "Bathinda" }, // Bathinda
+          { coords: [78.0322, 30.3165], name: "Dehradun" }, // Dehradun
+          { coords: [75.4176, 32.0419], name: "Gurdaspur" }, // Gurdaspur
+          { coords: [76.988, 29.6857], name: "Karnal" }, // Karnal
+          { coords: [76.8173, 29.9695], name: "Kurukshetra" }, // Kurukshetra
+          { coords: [75.8573, 30.9009], name: "Ludhiana" }, // Ludhiana
+          { coords: [77.1717, 32.2432], name: "Manali" }, // Manali
+          { coords: [77.1734, 31.1048], name: "Shimla" }, // Shimla
+          { coords: [77.391, 28.5355], name: "Noida" }, // Noida
+          { coords: [76.4029, 30.3398], name: "Patiala" }, // Patiala
+        ];
+
+        connect.forEach(({ coords: markerLatLong, name }, i) => {
+          const el = document.createElement("div");
+          el.className = "connectivity-marker";
+          el.style.backgroundImage = `url(images/connectivity/${i + 1}.png)`;
+
+          let mark = new maplibregl.Marker({ element: el })
+            .setLngLat(markerLatLong)
+            .addTo(map);
+          connectMarker.push(mark);
+          const routeId = `connect-route-${i}`;
+
+          let coordinates = bezierCurve([77.1864, 28.6134], markerLatLong);
+
+          // Add GeoJSON source
+          map.addSource(routeId, {
+            type: "geojson",
+            data: {
+              type: "Feature",
+              geometry: {
+                type: "LineString",
+                coordinates,
+              },
+            },
+          });
+
+          // Add route layer
+          map.addLayer({
+            id: routeId,
+            type: "line",
+            source: routeId,
+            layout: { "line-cap": "round", "line-join": "round" },
+            paint: {
+              "line-color": "#0e5bcf",
+              "line-width": 7,
+              "line-opacity": 0.8,
+            },
+          });
+          el.addEventListener("click", function (e) {
+            const routeIds = map
+              .getStyle()
+              .layers.filter(
+                (l) => l.id !== routeId && l.id.startsWith("connect-route-")
+              )
+              .map((l) => l.id);
+            routeIds.forEach((id) => {
+              if (map.getLayer(id)) map.removeLayer(id);
+              if (map.getSource(id)) map.removeSource(id);
+            });
+            let copyConnectMarker = connectMarker.filter(
+              (marker) => marker != mark
+            );
+            if (copyConnectMarker.length) removeMarker(copyConnectMarker);
+
+            let bottomLinksLength = bottomLinks.childElementCount;
+            for (let i = 0; i < bottomLinksLength; i++) {
+              bottomLinks.children[i].style.display = "block";
+            }
+            const pos = mark.getLngLat();
+            console.log(e);
+
+            calculateDistanceAndInsert([pos.lng, pos.lat], name);
+          });
+        });
+      }
+
+      function removeMarker(arr = removableMarker) {
+        arr.forEach((marker, i) => {
+          marker.remove();
+        });
+        arr.length = 0;
+        console.log(
+          removableMarker.length,
+          arr.length,
+          "in remove marker function"
+        );
+      }
+
+      function handleMarkerClick(long = 77.1864, lat = 28.6134, zoom = 16) {
+        if (removableMarker.length) removeMarker();
+        if (connectMarker.length) removeMarker(connectMarker);
+
+        bottomLinks.children[0].style.display = "block";
+        bottomLinks.children[1].style.display = "block";
+        bottomLinks.children[2].style.display = "none";
+        bottomLinks.children[3].style.display = "none";
+
+        distanceLink.children[1].textContent = "Total Area - 5.71 Acres";
+        bottomLinks.children[0].children[1].textContent =
+          "Sector 40, New Delhi";
+
+        const routeIds = map
+          .getStyle()
+          .layers.filter((l) => l.id.startsWith("connect-route-"))
+          .map((l) => l.id);
+        routeIds.forEach((id) => {
+          if (map.getLayer(id)) map.removeLayer(id);
+          if (map.getSource(id)) map.removeSource(id);
+        });
+        map.flyTo({
+          center: [long, lat],
+          zoom,
+          pitch: 85,
+          bearing: -127.6,
+          speed: 0.8,
+        });
+
+        map.once("moveend", () => {
+          map.rotateTo(20, { duration: 10000 });
+        });
+      }
+
+      function nearBy() {
+        if (connectMarker.length) removeMarker(connectMarker);
+        const routeIds = map
+          .getStyle()
+          .layers.filter((l) => l.id.startsWith("connect-route-"))
+          .map((l) => l.id);
+        routeIds.forEach((id) => {
+          if (map.getLayer(id)) map.removeLayer(id);
+          if (map.getSource(id)) map.removeSource(id);
+        });
+        let bottomLinksLength = bottomLinks.childElementCount;
+        for (let i = 0; i < bottomLinksLength; i++) {
+          bottomLinks.children[i].style.display = "none";
+        }
+
+        let marker = [
+          {
+            coords: [77.2, 28.593],
+            color: "#0c63e7",
+            name: "Surrounding-Building-1",
+          },
+          {
+            coords: [77.198, 28.615],
+            color: "#ff0f80",
+            name: "Surrounding-Building-2",
+          },
+          {
+            coords: [77.17, 28.609],
+            color: "#89fc00",
+            name: "Surrounding-Building-3",
+          },
+
+          {
+            coords: [77.1924, 28.6334],
+            color: "#57d5ab",
+            name: "Surrounding-Building-4",
+          },
+        ];
+        marker.forEach(({ coords, color, name }, i) => {
+          let mark = new maplibregl.Marker({
+            color,
+          })
+            .setLngLat(coords)
+            .addTo(map);
+
+          removableMarker.push(mark);
+          let el = mark.getElement();
+          el.style.cursor = "pointer";
+          el.addEventListener("click", (e) => {
+            let bottomLinksLength = bottomLinks.childElementCount;
+            for (let i = 0; i < bottomLinksLength; i++) {
+              bottomLinks.children[i].style.display = "block";
+            }
+            const pos = mark.getLngLat();
+            console.log(e);
+
+            calculateDistanceAndInsert([pos.lng, pos.lat], name);
+            map.flyTo({
+              center: coords,
+              zoom: 16,
+              pitch: 85,
+              bearing: -127.6,
+              speed: 0.8,
+            });
+          });
+        });
+
+        map.flyTo({
+          center: [77.1864, 28.6134],
+          zoom: 12,
+          pitch: 0,
+          bearing: -127.6,
+          speed: 0.8,
+        });
+      }
+
+      function add3DModels() {
+        const models = [
+          {
+            id: "Main-Building",
+            obj: "./models/GLBFinal_01.glb",
+            type: "gltf",
+            scale: 6,
+            units: "meters",
+            coords: [77.1865, 28.6133],
+            rotation: { x: 90, y: 0, z: 0 },
+            anchor: "center",
+          },
+          {
+            id: "Surrounding-Building-1",
+            obj: "./models/Civil_Hospital.glb",
+            type: "gltf",
+            scale: 2.5,
+            units: "meters",
+            coords: [77.2, 28.593],
+            rotation: { x: 0, y: 0, z: 0 },
+            anchor: "center",
+          },
+          {
+            id: "Surrounding-Building-2",
+            obj: "./models/Fortis_hospital.glb",
+            type: "gltf",
+            scale: 2,
+            units: "meters",
+            coords: [77.198, 28.615],
+            rotation: { x: 0, y: 0, z: 0 },
+            anchor: "center",
+          },
+          {
+            id: "Surrounding-Building-3",
+            obj: "./models/VR_Punjab_Mall.glb",
+            type: "gltf",
+            scale: 2,
+            units: "meters",
+            coords: [77.17, 28.609],
+            rotation: { x: 0, y: 0, z: 0 },
+            anchor: "center",
+          },
+          {
+            id: "Surrounding-Building-4",
+            obj: "./models/Judicial_Courts_Complex.glb",
+            type: "gltf",
+            scale: 2,
+            units: "meters",
+            coords: [77.1924, 28.6334],
+            rotation: { x: 0, y: 0, z: 0 },
+            anchor: "center",
+          },
+        ];
+        models.forEach(
+          ({ id, obj, type, scale, units, coords, rotation, anchor }) => {
+            const options = {
+              obj,
+              type,
+              scale,
+              units,
+              rotation,
+              anchor,
+            };
+
+            tb.loadObj(options, function (model) {
+              model.setCoords([...coords, 0]);
+              tb.add(model);
+              console.log("3D model" + id + " loaded successfully");
+            });
+          }
+        );
+      }
+
+      const map = new maplibregl.Map({
+        container: "map",
+        style:
+          "https://api.maptiler.com/maps/satellite/style.json?key=VlIjAv4QmBpHYDvtMbp8",
+        center: [myLng, myLat],
+        zoom: 5,
+      });
+
+      map.addControl(new maplibregl.NavigationControl());
+
+      map.on("load", () => {
+        console.log("map loaded successfully");
+
+        const pointLat = 28.6134;
+        const pointLng = 77.1864;
+
+        const el = document.createElement("div");
+        el.className = "dotpoint";
+
+        const label = document.createElement("div");
+        label.className = "marker-label";
+        label.textContent = "Homes";
+        el.appendChild(label);
+        new maplibregl.Marker({ element: el })
+          .setLngLat([pointLng, pointLat])
+          .addTo(map);
+
+        el.addEventListener("click", (e) => {
+          e.stopPropagation();
+          console.log("Marker clicked");
+          handleMarkerClick(pointLng, pointLat, 16);
+        });
+
+        map.addLayer({
+          id: "threebox-layer",
+          type: "custom",
+          renderingMode: "3d",
+          onAdd: function (map, gl) {
+            tb = new Threebox(map, gl, { defaultLights: true });
+          },
+          render: function (gl, matrix) {
+            if (tb) tb.update();
+          },
+        });
+        add3DModels();
+
+        //line drawn and animateion logic
+        if (map.getSource("route")) {
+          map.removeLayer("route");
+          map.removeSource("route");
+        }
+
+        map.addSource("route", {
+          type: "geojson",
+          data: {
+            type: "Feature",
+            geometry: {
+              type: "LineString",
+              coordinates: [
+                [77.190648, 28.6133],
+                [77.189697, 28.61506],
+                [77.186463, 28.616036],
+                [77.18335, 28.614171],
+                [77.184818, 28.611377],
+                [77.187354, 28.611042],
+                [77.190648, 28.6133],
+              ],
+            },
+          },
+        });
+
+        map.addLayer({
+          id: "route-bg",
+          type: "line",
+          source: "route",
+          paint: {
+            "line-color": "#222",
+            "line-width": 8,
+            "line-opacity": 0.6,
+          },
+        });
+        map.addLayer({
+          id: "route-anim",
+          type: "line",
+          source: "route",
+          paint: {
+            "line-color": "#FF0000",
+            "line-width": 4,
+            "line-dasharray": [0, 4, 3],
+          },
+        });
+
+        const dashArraySeq = [
+          [0, 4, 3],
+          [0.5, 4, 2.5],
+          [1, 4, 2],
+          [1.5, 4, 1.5],
+          [2, 4, 1],
+          [2.5, 4, 0.5],
+          [3, 4, 0],
+          [0, 0.5, 3, 3.5],
+          [0, 1, 3, 3],
+          [0, 1.5, 3, 2.5],
+          [0, 2, 3, 2],
+          [0, 2.5, 3, 1.5],
+          [0, 3, 3, 1],
+          [0, 3.5, 3, 0.5],
+        ];
+
+        let step = 0;
+        function animateDash() {
+          const pattern = dashArraySeq[step];
+          map.setPaintProperty("route-anim", "line-dasharray", pattern);
+          step = (step + 1) % dashArraySeq.length;
+          requestAnimationFrame(animateDash);
+        }
+
+        animateDash();
+        //lines logic ends
+      });
+
+      function bezierCurve(
+        start,
+        end,
+        curveOffset = 0.3,
+        waveAmount = 0.02,
+        numPoints = 80
+      ) {
+        const sx = start[0],
+          sy = start[1];
+        const ex = end[0],
+          ey = end[1];
+
+        // midpoint for main curve arc
+        const mx = (sx + ex) / 2;
+        const my = (sy + ey) / 2;
+
+        const dx = ex - sx;
+        const dy = ey - sy;
+
+        // perpendicular vector
+        const px = -dy;
+        const py = dx;
+        const len = Math.sqrt(px * px + py * py);
+        const ux = px / len;
+        const uy = py / len;
+
+        // main control point
+        const cx = mx + ux * curveOffset;
+        const cy = my + uy * curveOffset;
+
+        let curved = [];
+
+        for (let i = 0; i <= numPoints; i++) {
+          const t = i / numPoints;
+
+          // basic quadratic bezier position
+          let x = (1 - t) ** 2 * sx + 2 * (1 - t) * t * cx + t ** 2 * ex;
+
+          let y = (1 - t) ** 2 * sy + 2 * (1 - t) * t * cy + t ** 2 * ey;
+
+          // smooth wave factor (sin causes gentle left-right oscillation)
+          const smoothWave =
+            Math.sin(t * Math.PI * (3 + Math.random())) * // 3–4 waves
+            waveAmount *
+            (0.4 + Math.random() * 0.6); // slight randomness
+
+          // apply wave perpendicular to path
+          x += ux * smoothWave;
+          y += uy * smoothWave;
+
+          curved.push([x, y]);
+        }
+
+        return curved;
+      }
+    </script>
+  </body>
+</html>
